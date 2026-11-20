@@ -1,3 +1,4 @@
+#include <bits/time.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,26 +77,52 @@ int main(int argc, char ** argv){
   };
 
   struct icmp_msg_t msg = {};
-  struct ip_header_t ip_header = {};
+  struct ip_header_t h = {};
   msg.type = 8;
   msg.code = 0;
   msg.checksum = 0;
-  msg.header = ip_header;
+  msg.header = h;
+  
 
+  struct timespec t0;
+  rc = clock_gettime(CLOCK_MONOTONIC, &t0);
+  if (rc == -1){
+    perror("clock_gettime");
+    exit(EXIT_FAILURE);
+  }
   rc = send(sock_fd, (void *)&msg, sizeof(msg), 0);
   if (rc == -1){
     perror("send");
     exit(EXIT_FAILURE);
   }
-  fprintf(stdout, "sent\n");
-  
+
+  fprintf(stdout,  "msg len:%ld bytes\n"\
+                   "sent: %d bytes\n"\
+                   "msg body: %a\n",
+                    sizeof(msg),
+                    rc,
+                    msg
+                    );
+
   //recv
-  char buf[512];
-  recv(sock_fd, buf, 512, 0);
+  uint8_t buf[512];
+  rc = recv(sock_fd, buf, 512, MSG_WAITALL);
   if (rc == -1){
     perror("recv");
     exit(EXIT_FAILURE);
   }
-  fprintf(stdout, "%s\n", buf);
+
+  struct timespec t1;
+  rc = clock_gettime(CLOCK_MONOTONIC, &t1);
+  if (rc == -1){
+    perror("clock_gettime");
+    exit(EXIT_FAILURE);
+  }
+
+  fprintf(stdout, "received %d bytes after %f ms, %x\n",
+    rc,
+    (t1.tv_nsec - t0.tv_nsec)/1000000.0,
+    *buf);
+
   return EXIT_SUCCESS;
 }
