@@ -42,17 +42,22 @@ struct icmp_msg_t {
 
 int main(int argc, char ** argv){
   
+  int rc = 0;
+
   char name[HOST_NAME_MAX];
+  struct addrinfo *localinf;
   gethostname(name, HOST_NAME_MAX);
-  long id = gethostid();
-  fprintf(stdout, "from: %ld \thost :%s\n",
-    id,
-    name
-    );
+  rc =getaddrinfo(name, NULL, NULL, &localinf);
+
+  char lip[INET_ADDRSTRLEN];
+  struct sockaddr_in *sin = (struct sockaddr_in *)localinf->ai_addr;
+  inet_ntop(AF_INET, &sin->sin_addr, lip, sizeof lip);
+  printf("self host:%s\tip:%s\n", name, lip);
+  freeaddrinfo(localinf);
+
 
   fprintf(stdout, "checking ip of: %s\n", argv[1]);
   struct addrinfo *inf = NULL;
-  int rc = 0;
   struct addrinfo hints = {};
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_DGRAM;
@@ -65,11 +70,13 @@ int main(int argc, char ** argv){
     exit(EXIT_FAILURE);
   }
 
+  struct sockaddr_in *peer = (struct sockaddr_in *)inf->ai_addr;
+  char ssockip[INET_ADDRSTRLEN];  
+  inet_ntop(AF_INET, &peer->sin_addr, ssockip, INET_ADDRSTRLEN);
+  fprintf(stdout,"resolved peer: %s\n", ssockip);
 
   printf("is AF_INET?: %d\n", inf->ai_family == AF_INET);
   printf("socktype?: %d\n", inf->ai_socktype);
-  printf("data: %s\n", inf->ai_addr->sa_data);
-  printf("cannonname: %s\n", inf->ai_canonname);
 
   struct sockaddr_in addr = {
      inf->ai_family, //sa_family_t
@@ -89,10 +96,6 @@ int main(int argc, char ** argv){
     perror("connect");
     exit(EXIT_FAILURE);
   }
-  struct sockaddr_in *peer = (struct sockaddr_in *)inf->ai_addr;
-  char ssockip[INET_ADDRSTRLEN];  
-  inet_ntop(AF_INET, &peer->sin_addr, ssockip, INET_ADDRSTRLEN);
-  fprintf(stdout,"resolved peer: %s\n", ssockip);
   fprintf(stdout,"connected\n");
   freeaddrinfo(inf);
 
@@ -102,7 +105,7 @@ int main(int argc, char ** argv){
   msg.code = 0;
   msg.checksum = 0;
   msg.id = htons(getpid());
-  msg.seqno = 1;
+  msg.seqno = htons(5);
   
 
   struct timespec t0;
