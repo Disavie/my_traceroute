@@ -5,10 +5,15 @@
 #include <stdio.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <errno.h>
 
+//Unusued because I cant open a raw socket without being root or setting special perms
+//So I'm forced to use a UDP socket that sends ICMP msgs
+//And when doing this, the linux kernel takes care of the ip header
+//So this also means I can't manipulate the ttl
 struct ip_header_t {
   uint8_t v_ihl;
   uint8_t dscp_ecn;
@@ -33,9 +38,18 @@ struct icmp_msg_t {
   uint16_t seqno;
 };
 
+#define HOST_NAME_MAX 512
 
 int main(int argc, char ** argv){
   
+  char name[HOST_NAME_MAX];
+  gethostname(name, HOST_NAME_MAX);
+  long id = gethostid();
+  fprintf(stdout, "from: %ld \thost :%s\n",
+    id,
+    name
+    );
+
   fprintf(stdout, "checking ip of: %s\n", argv[1]);
   struct addrinfo *inf = NULL;
   int rc = 0;
@@ -44,7 +58,7 @@ int main(int argc, char ** argv){
   hints.ai_socktype = SOCK_DGRAM;
   hints.ai_flags = AI_ADDRCONFIG |AI_CANONNAME;
 
-  rc = getaddrinfo( argv[1], NULL, &hints, &inf);
+  rc = getaddrinfo(argv[1], NULL, &hints, &inf);
   if(rc != 0){ //-2 -> name/service is unknown
     fprintf(stderr, "rc: %d\n", rc);
     perror("getaddrinfo");
@@ -75,6 +89,10 @@ int main(int argc, char ** argv){
     perror("connect");
     exit(EXIT_FAILURE);
   }
+  struct sockaddr_in *peer = (struct sockaddr_in *)inf->ai_addr;
+  char ssockip[INET_ADDRSTRLEN];  
+  inet_ntop(AF_INET, &peer->sin_addr, ssockip, INET_ADDRSTRLEN);
+  fprintf(stdout,"resolved peer: %s\n", ssockip);
   fprintf(stdout,"connected\n");
   freeaddrinfo(inf);
 
