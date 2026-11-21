@@ -1,4 +1,5 @@
 #include <bits/time.h>
+#include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
@@ -34,6 +35,14 @@ static uint16_t inet_checksum(const void *buf, size_t len) {
 #define HOST_NAME_MAX 512
 
 int main(int argc, char ** argv){
+  int ttl = -1;
+  const char * _d = argv[argc-1];
+  for(int i = 0; i < argc; i++){
+    if(strcmp(argv[i],"--ttl") == 0){
+     ttl = atoi(argv[++i]); 
+    }
+  }
+  fprintf(stdout, "ttl: %d\ndest: %s\n", ttl, _d);
   
   int rc = 0;
 
@@ -49,46 +58,44 @@ int main(int argc, char ** argv){
   freeaddrinfo(localinf);
 
 
-  fprintf(stdout, "checking ip of: %s\n", argv[1]);
+  fprintf(stdout, "checking ip of: %s\n", _d);
   struct addrinfo *inf = NULL;
   struct addrinfo hints = {};
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_RAW;
   hints.ai_flags = AI_ADDRCONFIG |AI_CANONNAME;
 
-  rc = getaddrinfo(argv[1], NULL, &hints, &inf);
+  rc = getaddrinfo(_d, NULL, &hints, &inf);
   if(rc != 0){ //-2 -> name/service is unknown
     fprintf(stderr, "rc: %d\n", rc);
     perror("getaddrinfo");
     exit(EXIT_FAILURE);
   }
 
-  struct sockaddr_in *peer = (struct sockaddr_in *)inf->ai_addr;
+  struct sockaddr_in peer;
+  memcpy(&peer, inf->ai_addr, sizeof peer);
+  socklen_t dest_len = inf->ai_addrlen;
+  freeaddrinfo(inf);
+
   char ssockip[INET_ADDRSTRLEN];  
-  inet_ntop(AF_INET, &peer->sin_addr, ssockip, INET_ADDRSTRLEN);
+  inet_ntop(AF_INET, &peer.sin_addr , ssockip, INET_ADDRSTRLEN);
   fprintf(stdout,"resolved peer: %s\n", ssockip);
 
   printf("is AF_INET?: %d\n", inf->ai_family == AF_INET);
   printf("SOCKET_RAW?: %d\n", inf->ai_socktype == SOCK_RAW);
 
   //socket
-  int sock_fd = socket(AF_INET, inf->ai_socktype, IPPROTO_ICMP);
+  int sock_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
   if(sock_fd == -1){
     fprintf(stderr, "sock_fd: %d\n", sock_fd);
     perror("socket");
     exit(EXIT_FAILURE);
   }
 
-  //connect
-  rc = connect(sock_fd, inf->ai_addr, inf->ai_addrlen);
-  if(rc == -1){
-    perror("connect");
-    exit(EXIT_FAILURE);
-  }
-  fprintf(stdout,"connected\n");
-  freeaddrinfo(inf);
   // Set ttl
-  int ttl = 1;
+  if(ttl == -1){
+    ttl = 128;
+  }
   if (setsockopt(sock_fd, IPPROTO_IP, IP_TTL, &ttl, sizeof ttl) == -1)
       perror("setsockopt IP_TTL");
   // Set timeout
@@ -110,7 +117,8 @@ int main(int argc, char ** argv){
     perror("clock_gettime");
     exit(EXIT_FAILURE);
   }
-  rc = send(sock_fd, (void *)&msg, sizeof(msg), 0);
+  rc = sendto(sock_fd, &msg, sizeof(msg), 0, (struct sockaddr *)&peer, dest_len);
+
   if (rc == -1){
     fprintf(stderr, "errno = %d\n", errno);
     perror("send");
@@ -120,16 +128,37 @@ int main(int argc, char ** argv){
   printf("msg len: %zu bytes\nsent: %d bytes\nmsg body:\n", sizeof(msg), rc);
   for (size_t i = 0; i < sizeof(msg); i++)
       printf(" %02x", ((uint8_t *)&msg)[i]);
-  printf("\n");
+  printf("\n\n");
 
   //recv
-  uint8_t buf[512];
-  size_t recieved_count;
-  recieved_count = recv(sock_fd, buf, 512, 0);
-  if (recieved_count == -1){
-    perror("recv");
-    exit(EXIT_FAILURE);
+  uint8_t buf[1024];
+  ssize_t recieved_count;
+  struct sockaddr_in recv_addr;
+  size_t running_recieved_count = 0;
+  /*
+  while( (recieved_count = recvfrom(sock_fd, buf, 512, 0,
+                           (struct sockaddr *)&recv_addr,
+                           &dest_len)
+                           ) != -1){
+
+    for (size_t i = 0; i <  recieved_count; i++){
+        fprintf(stdout," %02x", ((uint8_t *)&buf)[i]);
+    }
+    running_recieved_count+=recieved_count;
   }
+  */
+  int grouper = 0;
+  while((recieved_count = recv(sock_fd, buf, 512, 0)) != -1){
+    for (size_t i = 0; i <  recieved_count; i++){
+        fprintf(stdout," %02x", ((uint8_t *)&buf)[i]);
+        grouper++;
+        if( grouper % 16 == 0) fprintf(stdout, "\n");
+    }
+    running_recieved_count+=recieved_count;
+
+  }
+  fprintf(stderr, "errno = %d\n", errno);
+  perror("recv");
 
   struct timespec t1;
   rc = clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -139,10 +168,6 @@ int main(int argc, char ** argv){
   }
 
   double elapsed = (t1.tv_nsec - t0.tv_nsec)/1000000.0;
-  printf("recv: %zu bytes after %f ms body:", recieved_count, elapsed);
-  for (size_t i = 0; i <  recieved_count; i++)
-      printf(" %02x", ((uint8_t *)&buf)[i]);
-  printf("\n");
-
+  printf("recieved: %zu bytes after %f ms\n:", running_recieved_count, elapsed);
   return EXIT_SUCCESS;
 }
