@@ -1,0 +1,20 @@
+ttl: -1
+dest: google.com
+self host:latty	ip:100.127.181.48
+checking ip of: google.com
+resolved peer: 142.250.189.110
+is AF_INET?: 0
+SOCKET_RAW?: 0
+msg len: 24 bytes
+sent: 24 bytes
+msg body:
+ 08 00 9c e3 5b 1b 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+45 00 00 54 3f ba 00 00 39 01 ad e6 d8 ea 61 03 0a 08 50 13 03 03 16 32 00 00 00 00 45 00 00 38 f2 9c 40 00 38 11 bc 0f 0a 08 50 13 d8 ea 61 03 8a d6 00 35 00 24 58 2c ef b5 01 00 00 01 00 00 00 00 00 00 06 67 6f 6f 67 6c 65 03 63 6f 6d 00 00 01 00 01 
+ip version 0x4
+hlen 0x5
+full len 84
+icmp type 3
+icmp code 3
+recieved: 84 bytes after 5.174150 ms
+:
