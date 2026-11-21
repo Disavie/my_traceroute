@@ -9,7 +9,27 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <endian.h>
 #include <errno.h>
+
+#define IP_RES_MAX 60
+#define ICMP_RES_MAX 64
+
+typedef struct {
+  uint8_t v_ihl;
+  uint8_t dscp_ecn;
+  uint16_t len;
+
+  uint16_t id;
+  uint16_t flags_fragoff;
+
+  uint8_t ttl;
+  uint8_t protocol;
+  uint16_t checksum;
+
+  uint32_t src_addr;
+  uint32_t dest_addr;
+}ip_header_t;
 
 struct icmp_msg_t {
   uint8_t type;
@@ -22,8 +42,8 @@ struct icmp_msg_t {
   uint8_t payload[16];
 };
 
-
-static uint16_t inet_checksum(const void *buf, size_t len) {
+static uint16_t
+inet_checksum(const void *buf, size_t len) {
     const uint16_t *p = buf;
     uint32_t sum = 0;
     while (len > 1) { sum += *p++; len -= 2; }
@@ -34,7 +54,8 @@ static uint16_t inet_checksum(const void *buf, size_t len) {
 
 #define HOST_NAME_MAX 512
 
-int main(int argc, char ** argv){
+int
+main(int argc, char ** argv){
   int ttl = -1;
   const char * _d = argv[argc-1];
   for(int i = 0; i < argc; i++){
@@ -135,26 +156,35 @@ int main(int argc, char ** argv){
   ssize_t recieved_count;
   struct sockaddr_in recv_addr;
   size_t running_recieved_count = 0;
-  /*
-  while( (recieved_count = recvfrom(sock_fd, buf, 512, 0,
-                           (struct sockaddr *)&recv_addr,
-                           &dest_len)
-                           ) != -1){
+  
+  enum curr_header_type {
+    IP, 
+    ICMP, 
+  };
 
-    for (size_t i = 0; i <  recieved_count; i++){
-        fprintf(stdout," %02x", ((uint8_t *)&buf)[i]);
-    }
-    running_recieved_count+=recieved_count;
-  }
-  */
-  int grouper = 0;
+  ip_header_t ip_header = {};
+  struct icmp_msg_t icmp_res= {};
+  
+  int finished = 0;
+  enum curr_header_type looking_at = IP;
   while((recieved_count = recv(sock_fd, buf, 512, 0)) != -1){
-    for (size_t i = 0; i <  recieved_count; i++){
-        fprintf(stdout," %02x", ((uint8_t *)&buf)[i]);
-        grouper++;
-        if( grouper % 16 == 0) fprintf(stdout, "\n");
-    }
+    for(int i = 0; i < recieved_count; i++)
+      fprintf(stdout,"%02x ", buf[i]);
+
+    memcpy(&ip_header,buf,sizeof(ip_header));
+    //snprintf(res_ip,IP_RES_MAX," %02x", ((uint8_t *)&buf)[i]);
+    fprintf(stdout, "ip version %#x\n", ip_header.v_ihl>>4);
+    fprintf(stdout, "hlen %#x\n", ip_header.v_ihl & 0x7);
+    fprintf(stdout, "full len %d\n", be16toh(ip_header.len));
+
+    size_t indexof_endiph = (ip_header.v_ihl & 0x7)*4;
+    memcpy(&icmp_res, buf+indexof_endiph, sizeof(icmp_res));
+    fprintf(stdout, "icmp type %d\n", icmp_res.type);
+    fprintf(stdout, "icmp code %d\n", icmp_res.code);
     running_recieved_count+=recieved_count;
+    if(be16toh(ip_header.len) >= running_recieved_count){
+      break;
+    }
 
   }
   fprintf(stderr, "errno = %d\n", errno);
