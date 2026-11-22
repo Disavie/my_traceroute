@@ -156,7 +156,7 @@ main(int argc, char ** argv){
             perror("clock_gettime");
             exit(EXIT_FAILURE);
         }
-        fprintf(stdout,"++++++++++++SENDING NEW++++++++++++\n");
+        fprintf(stdout,"\n========================SENDING NEW========================\n");
         fprintf(stdout, "TTL: %d\t PINGS_REMAINING: %ld\n", ttl, pingc);
         rc = sendto(sock_fd, &msg, sizeof(msg), 0, (struct sockaddr *)&peer, dest_len);
 
@@ -198,22 +198,51 @@ main(int argc, char ** argv){
                 fprintf(stdout, "\n");
             }
 
+
+            if(running_recieved_count+=recieved_count < sizeof(ip_header)){
+                continue;
+            }
+
             memcpy(&ip_header,buf,sizeof(ip_header));
-            size_t indexof_endiph = (ip_header.v_ihl & 0x7)*4;
+            size_t indexof_endiph = (ip_header.v_ihl & 0xF)*4;
             memcpy(&icmp_res, buf+indexof_endiph, sizeof(icmp_res));
+
+            // Validate
+            if (traceroute) {
+                uint16_t reply_id;
+
+                if (icmp_res.type == 0) {
+                    memcpy(&reply_id, buf + indexof_endiph + 4, sizeof(reply_id));
+
+                } else if (icmp_res.type == 11) {
+                    size_t inner_ip_off = indexof_endiph + 8;
+                    if ((size_t)recieved_count < inner_ip_off + 20) {
+                        continue;
+                    }
+                    size_t inner_ihl = (buf[inner_ip_off] & 0xF) * 4;
+                    size_t inner_icmp_off = inner_ip_off + inner_ihl;
+                    if ((size_t)recieved_count < inner_icmp_off + 8) {
+                        continue;
+                    }
+                    memcpy(&reply_id, buf + inner_icmp_off + 4, sizeof(reply_id));
+
+                } else {
+                    continue; // not part of our chain
+                }
+
+                if (reply_id != msg.id) {
+                    continue;
+                }
+            }else if(icmp_res.id != msg.id){
+               continue; 
+            }
 
             char src_ip_buf[AF_MAX];
             char dest_ip_buf[AF_MAX];
             inet_ntop(AF_INET, &ip_header.src_addr, src_ip_buf, dest_len);
             inet_ntop(AF_INET, &ip_header.dest_addr, dest_ip_buf, dest_len);
 
-            running_recieved_count+=recieved_count;
-
-            if(icmp_res.type == 8){//<This is an echo request from somewhere and my program dgaf about that
-                if(verbose)
-                    fprintf(stdout, "recieved echo request from %s\n", src_ip_buf);
-                break;
-            }             if(verbose){
+            if(verbose){
                 fprintf(stdout, "ip_res:\n"\
                         "\tversion %#x\n"\
                         "\theader-length = %#x\n"\
@@ -229,8 +258,6 @@ main(int argc, char ** argv){
                     src_ip_buf,
                     dest_ip_buf
                    );
-
-
             fprintf(stdout, "icmp_response:"\
                             "\tTYPE: %d |"\
                             "\tCODE: %d\n",
@@ -239,7 +266,6 @@ main(int argc, char ** argv){
             if(be16toh(ip_header.len) >= running_recieved_count){
                 break;
             }
-
         }
 
 
@@ -252,14 +278,16 @@ main(int argc, char ** argv){
         double elapsed = (t1.tv_nsec - t0.tv_nsec)/1000000.0;
 
         if(icmp_res.type == 0){
-            if(traceroute) break;
-        }
-        if(icmp_res.type == 0){
             printf("recieved: %zu bytes after %fms\n", running_recieved_count, elapsed);
-            ;
+            if(traceroute) break;
         }else if(icmp_res.type == 8){
+            printf("recieved: %zu bytes after %fms\n", running_recieved_count, elapsed);
             ;//Todo fix the timer here
-        }else if(!(icmp_res.type == 11 && traceroute) && icmp_res.type != 8){
+        }else if(icmp_res.type == 11 && traceroute){
+            ;
+            printf("recieved: %zu bytes after %fms\n", running_recieved_count, elapsed);
+        }else{
+
             fprintf(stdout, "something else..see icmp_res.type!\n");
             break;
         }
