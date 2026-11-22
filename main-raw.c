@@ -152,10 +152,7 @@ main(int argc, char ** argv){
 
         struct timespec t0;
         rc = clock_gettime(CLOCK_MONOTONIC, &t0);
-        if (rc == -1){
-            perror("clock_gettime");
-            exit(EXIT_FAILURE);
-        }
+
         fprintf(stdout,"\n========================SENDING NEW========================\n");
         fprintf(stdout, "TTL: %d\t PINGS_REMAINING: %ld\n", ttl, pingc);
         rc = sendto(sock_fd, &msg, sizeof(msg), 0, (struct sockaddr *)&peer, dest_len);
@@ -199,13 +196,12 @@ main(int argc, char ** argv){
             }
 
 
-            if(running_recieved_count+=recieved_count < sizeof(ip_header)){
-                continue;
-            }
 
-            memcpy(&ip_header,buf,sizeof(ip_header));
-            size_t indexof_endiph = (ip_header.v_ihl & 0xF)*4;
-            memcpy(&icmp_res, buf+indexof_endiph, sizeof(icmp_res));
+            if ((size_t)recieved_count < sizeof(ip_header)) continue;
+            memcpy(&ip_header, buf, sizeof(ip_header));
+            size_t indexof_endiph = (ip_header.v_ihl & 0xF) * 4;
+            if ((size_t)recieved_count < indexof_endiph + sizeof(icmp_res)) continue;
+            memcpy(&icmp_res, buf + indexof_endiph, sizeof(icmp_res));
 
             // Validate
             if (traceroute) {
@@ -229,18 +225,22 @@ main(int argc, char ** argv){
                 } else {
                     continue; // not part of our chain
                 }
-
+                
                 if (reply_id != msg.id) {
                     continue;
                 }
             }else if(icmp_res.id != msg.id){
                continue; 
             }
-
-            char src_ip_buf[AF_MAX];
-            char dest_ip_buf[AF_MAX];
+            running_recieved_count = recieved_count;
+            char src_ip_buf[INET_ADDRSTRLEN];
+            char dest_ip_buf[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &ip_header.src_addr, src_ip_buf, dest_len);
             inet_ntop(AF_INET, &ip_header.dest_addr, dest_ip_buf, dest_len);
+
+            if(icmp_res.type == 0){
+                fprintf(stderr,"hi\n");
+            }
 
             if(verbose){
                 fprintf(stdout, "ip_res:\n"\
@@ -263,9 +263,7 @@ main(int argc, char ** argv){
                             "\tCODE: %d\n",
                             icmp_res.type,
                             icmp_res.code);
-            if(be16toh(ip_header.len) >= running_recieved_count){
-                break;
-            }
+            break;
         }
 
 
@@ -284,7 +282,6 @@ main(int argc, char ** argv){
             printf("recieved: %zu bytes after %fms\n", running_recieved_count, elapsed);
             ;//Todo fix the timer here
         }else if(icmp_res.type == 11 && traceroute){
-            ;
             printf("recieved: %zu bytes after %fms\n", running_recieved_count, elapsed);
         }else{
 
@@ -294,9 +291,7 @@ main(int argc, char ** argv){
         ttl++;
         pingc--;
         hopc++;
-        if(!traceroute){
-            sleep(1);
-        }
+        if(!traceroute) sleep(1);
     }
     if(traceroute){
         fprintf(stdout, "completed in %d hops\n", hopc);
