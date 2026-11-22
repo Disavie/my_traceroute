@@ -183,8 +183,8 @@ main(int argc, char ** argv){
 
         ip_header_t ip_header = {};
         struct icmp_msg_t icmp_res= {};
-
-        while((recieved_count = recv(sock_fd, buf, 512, 0)) != -1){
+        int gotreply = 0;
+        while(!gotreply && (recieved_count = recv(sock_fd, buf, 512, 0)) != -1){
             if(verbose){
                 for(int i = 0; i < recieved_count; i++){
                     fprintf(stdout,"%02x ", buf[i]);
@@ -263,8 +263,9 @@ main(int argc, char ** argv){
                             "\tCODE: %d\n",
                             icmp_res.type,
                             icmp_res.code);
-            break;
+            gotreply = 1;
         }
+
 
 
         struct timespec t1;
