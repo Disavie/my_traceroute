@@ -55,6 +55,7 @@ inet_checksum(const void *buf, size_t len) {
 
 int
 main(int argc, char ** argv){
+    int verbose = 0;
     int ttl = -1;
     int traceroute = 0;
     size_t pingc = INT64_MAX;
@@ -66,8 +67,14 @@ main(int argc, char ** argv){
         if(strcmp(argv[i],"--tr") == 0){
             traceroute = 1;
         }
+        if(strcmp(argv[i],"--traceroute") == 0){
+            traceroute = 1;
+        }
         if(strcmp(argv[i], "-c") == 0){
             pingc = atoi(argv[++i]); 
+        }
+        if(strcmp(argv[i], "-v") == 0){
+            verbose = 1;
         }
     }
 
@@ -135,8 +142,9 @@ main(int argc, char ** argv){
     msg.seqno = htons(1);
     msg.checksum = inet_checksum(&msg, sizeof(msg));
 
-    fprintf(stdout, "initial ttl: %d | traceroute? %d | pingc: %d\n", ttl, traceroute, _d);
+    fprintf(stdout, "initial ttl: %d | traceroute? %d | pingc: %ld\n", ttl, traceroute, pingc);
     fprintf(stdout, "dest: %s\n", _d);
+    int hopc = 0;
     while(pingc > 0){
 
         if (setsockopt(sock_fd, IPPROTO_IP, IP_TTL, &ttl, sizeof ttl) == -1)
@@ -148,6 +156,8 @@ main(int argc, char ** argv){
             perror("clock_gettime");
             exit(EXIT_FAILURE);
         }
+        fprintf(stdout,"++++++++++++SENDING NEW++++++++++++\n");
+        fprintf(stdout, "TTL: %d\t PINGS_REMAINING: %ld\n", ttl, pingc);
         rc = sendto(sock_fd, &msg, sizeof(msg), 0, (struct sockaddr *)&peer, dest_len);
 
         if (rc == -1){
@@ -156,15 +166,17 @@ main(int argc, char ** argv){
             exit(EXIT_FAILURE);
         }
 
-        printf("msg len: %zu bytes\nsent: %d bytes\nmsg body:\n", sizeof(msg), rc);
-        for (size_t i = 0; i < sizeof(msg); i++){
-            printf(" %02x", ((uint8_t *)&msg)[i]);
-            if((i+1)%16 == 0){
-                printf("\n");
+        if(verbose){
+            printf("msg len: %zu bytes\nsent: %d bytes\nmsg body:\n", sizeof(msg), rc);
+            for (size_t i = 0; i < sizeof(msg); i++){
+                printf(" %02x", ((uint8_t *)&msg)[i]);
+                if((i+1)%16 == 0){
+                    printf("\n");
+                }
             }
+            printf("\n\n");
         }
             
-        printf("\n\n");
 
         //recv
         uint8_t buf[1024];
@@ -176,34 +188,51 @@ main(int argc, char ** argv){
         struct icmp_msg_t icmp_res= {};
 
         while((recieved_count = recv(sock_fd, buf, 512, 0)) != -1){
-            for(int i = 0; i < recieved_count; i++){
-                fprintf(stdout,"%02x ", buf[i]);
-                if((i+1)%16 == 0){
-                    printf("\n");
+            if(verbose){
+                for(int i = 0; i < recieved_count; i++){
+                    fprintf(stdout,"%02x ", buf[i]);
+                    if((i+1)%16 == 0){
+                        printf("\n");
+                    }
                 }
+                fprintf(stdout, "\n");
             }
-            fprintf(stdout, "\n");
 
             memcpy(&ip_header,buf,sizeof(ip_header));
-            //snprintf(res_ip,IP_RES_MAX," %02x", ((uint8_t *)&buf)[i]);
-            fprintf(stdout, "ip_res:\n"\
-                    "\tversion %#x\n"\
-                    "\theader-length = %#x\n"\
-                    "\tfull_length = %d\n",
-                    ip_header.v_ihl>>4,
-                    ip_header.v_ihl & 0x7,
-                    be16toh(ip_header.len)
-                   );
-
             size_t indexof_endiph = (ip_header.v_ihl & 0x7)*4;
             memcpy(&icmp_res, buf+indexof_endiph, sizeof(icmp_res));
 
-            fprintf(stdout, "icmp_res:\n"\
-                            "\ttype = %d\n"\
-                            "\tcode = %d\n",
+            char src_ip_buf[AF_MAX];
+            char dest_ip_buf[AF_MAX];
+            inet_ntop(AF_INET, &ip_header.src_addr, src_ip_buf, dest_len);
+            inet_ntop(AF_INET, &ip_header.dest_addr, dest_ip_buf, dest_len);
+
+            running_recieved_count+=recieved_count;
+
+            if(icmp_res.type == 8){fprintf(stdout, "recieved echo request from %s\n", src_ip_buf);break;} //<This is an echo request from somewhere and my program dgaf about that
+            if(verbose){
+                fprintf(stdout, "ip_res:\n"\
+                        "\tversion %#x\n"\
+                        "\theader-length = %#x\n"\
+                        "\tfull_length = %d\n",
+                        ip_header.v_ihl>>4,
+                        ip_header.v_ihl & 0x7,
+                        be16toh(ip_header.len)
+                       );
+            }
+            fprintf(stdout, "ipv4_response:"\
+                    "\tSRC: %s |"\
+                    "\tDEST: %s\n",
+                    src_ip_buf,
+                    dest_ip_buf
+                   );
+
+
+            fprintf(stdout, "icmp_response:"\
+                            "\tTYPE: %d |"\
+                            "\tCODE: %d\n",
                             icmp_res.type,
                             icmp_res.code);
-            running_recieved_count+=recieved_count;
             if(be16toh(ip_header.len) >= running_recieved_count){
                 break;
             }
@@ -217,18 +246,22 @@ main(int argc, char ** argv){
             exit(EXIT_FAILURE);
         }
         double elapsed = (t1.tv_nsec - t0.tv_nsec)/1000000.0;
-        printf("recieved: %zu bytes after %f ms\n:", running_recieved_count, elapsed);
+        printf("recieved: %zu bytes after %fms\n", running_recieved_count, elapsed);
         if(icmp_res.type == 0){
-            fprintf(stdout, "pinged!\n");
-        }else{
+            if(traceroute) break;
+        }else if(!(icmp_res.type == 11 && traceroute)){
             fprintf(stdout, "something else..see icmp_res.type!\n");
             break;
         }
         ttl++;
         pingc--;
+        hopc++;
         if(!traceroute){
             sleep(1);
         }
+    }
+    if(traceroute){
+        fprintf(stdout, "completed in %d hops\n", hopc);
     }
 
     return EXIT_SUCCESS;
