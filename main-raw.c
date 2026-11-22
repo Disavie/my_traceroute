@@ -209,8 +209,11 @@ main(int argc, char ** argv){
 
             running_recieved_count+=recieved_count;
 
-            if(icmp_res.type == 8){fprintf(stdout, "recieved echo request from %s\n", src_ip_buf);break;} //<This is an echo request from somewhere and my program dgaf about that
-            if(verbose){
+            if(icmp_res.type == 8){//<This is an echo request from somewhere and my program dgaf about that
+                if(verbose)
+                    fprintf(stdout, "recieved echo request from %s\n", src_ip_buf);
+                break;
+            }             if(verbose){
                 fprintf(stdout, "ip_res:\n"\
                         "\tversion %#x\n"\
                         "\theader-length = %#x\n"\
@@ -239,6 +242,7 @@ main(int argc, char ** argv){
 
         }
 
+
         struct timespec t1;
         rc = clock_gettime(CLOCK_MONOTONIC, &t1);
         if (rc == -1){
@@ -246,10 +250,16 @@ main(int argc, char ** argv){
             exit(EXIT_FAILURE);
         }
         double elapsed = (t1.tv_nsec - t0.tv_nsec)/1000000.0;
-        printf("recieved: %zu bytes after %fms\n", running_recieved_count, elapsed);
+
         if(icmp_res.type == 0){
             if(traceroute) break;
-        }else if(!(icmp_res.type == 11 && traceroute)){
+        }
+        if(icmp_res.type == 0){
+            printf("recieved: %zu bytes after %fms\n", running_recieved_count, elapsed);
+            ;
+        }else if(icmp_res.type == 8){
+            ;//Todo fix the timer here
+        }else if(!(icmp_res.type == 11 && traceroute) && icmp_res.type != 8){
             fprintf(stdout, "something else..see icmp_res.type!\n");
             break;
         }
